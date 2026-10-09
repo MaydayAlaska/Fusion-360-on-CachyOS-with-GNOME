@@ -33,14 +33,14 @@ Install the tools needed by Wine, the Fusion installer, and the popup workaround
 
 ```fish
 sudo pacman -S --needed \
-    downgrade wine-gecko wine-mono winetricks protontricks \
+    downgrade \
     gawk cabextract coreutils curl wget p7zip lsb-release \
     polkit samba libspnav xdg-utils bc xorg-xrandr \
     mokutil desktop-file-utils qt5-tools mesa-demos mesa-utils \
     python libxfixes xorg-xprop xdotool
 ```
 
-If Pacman cannot resolve Wine dependencies because an existing Wine installation is being removed or replaced, **do not force the transaction**. Use the conflict-handling instructions below first, then rerun this command after installing Wine 11.10.
+Install Wine Gecko, Wine Mono, Winetricks, and Protontricks **after** Wine 11.10 (section 1.5), so Pacman does not pull the latest repository Wine as a dependency. If any package conflicts with an existing Wine installation, **do not force the transaction**; review the conflict-handling instructions below.
 
 For the tested **AMD / RADV** configuration, also ensure the Vulkan and OpenGL drivers (including the 32-bit variants) are installed:
 
