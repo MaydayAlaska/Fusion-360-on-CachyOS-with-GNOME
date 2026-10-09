@@ -421,3 +421,87 @@ For a manual rollback, unpin **Autodesk Fusion** from GNOME, remove the managed 
 ---
 
 **Compatibility note:** This popup workaround was verified with **CachyOS + GNOME Wayland + XWayland + Wine Staging 11.10 + AMD Radeon RX 9070 XT**. It is a focused workaround, not a general Wine or Fusion patch.
+
+
+## Step 4 — Clean Up
+
+After Fusion 360 is installed and **the automatic popup fix works when launching from the GNOME dock**, the local copies of the *installers' source code* can be removed to free up disk space. **Do not perform this step until you have verified the installation.**
+
+### 4.1 Identify the folders
+
+The default Cryinkfly installation lives in **`~/.autodesk_fusion`**. This is **not** the same as the folders used to download and run its installer.
+
+| Directory | What it contains | Action |
+| --- | --- | --- |
+| `~/fusion-installer` | Downloaded Codeberg installation script | May be removed after successful installation |
+| `~/Autodesk-Fusion-360-for-Linux` | Local copy of the upstream Cryinkfly Git repository and resources | May be removed if no longer needed for development or troubleshooting |
+| `~/.autodesk_fusion` | **Actual Fusion installation**, Wine prefix, launcher and application files | **KEEP — DO NOT DELETE** |
+| `~/.local/bin/fusion-popup-fix.py` | Automatic popup watcher from Step 3 | **KEEP** |
+| `~/.local/bin/fusion-launch-with-fix.py` | Automatic Fusion launcher wrapper from Step 3 | **KEEP** |
+| `~/.local/share/applications/autodesk-fusion.desktop` | GNOME desktop/dock shortcut from Step 3 | **KEEP** |
+
+**Important:** If you used custom paths, edited these repositories, or stored personal files in either installer directory, inspect and back them up first. This cleanup assumes the default paths documented in Steps 1–3.
+
+List the folders and check their disk usage (Fish shell):
+
+```fish
+find "$HOME" -maxdepth 1 -type d -iname '*fusion*' -print
+
+for dir in "$HOME/fusion-installer" "$HOME/Autodesk-Fusion-360-for-Linux"
+    if test -d "$dir"
+        du -sh "$dir"
+        ls -la "$dir"
+    end
+end
+```
+
+### 4.2 Verify the final application before cleanup
+
+Confirm that the original Fusion launcher, its Wine prefix, and the two automatic-fix scripts still exist:
+
+```fish
+test -f "$HOME/.autodesk_fusion/bin/autodesk_fusion_launcher.sh"; and echo "Original Fusion launcher: OK"
+test -d "$HOME/.autodesk_fusion/wineprefixes/default/drive_c"; and echo "Fusion Wine prefix: OK"
+test -f "$HOME/.local/bin/fusion-popup-fix.py"; and echo "Popup watcher: OK"
+test -f "$HOME/.local/bin/fusion-launch-with-fix.py"; and echo "Launch wrapper: OK"
+test -f "$HOME/.local/share/applications/autodesk-fusion.desktop"; and echo "GNOME shortcut: OK"
+```
+
+Launch Fusion **from the GNOME dock**, open an **Open** or **Export** dialog, and make sure the window is both **clickable** and **not darkened**. If the launcher or popup fix fails, **stop here and troubleshoot before removing anything**.
+
+### 4.3 Move unused installer folders to the Trash
+
+Instead of permanently deleting files with `rm -rf`, move the two old installation-source folders to the **GNOME Trash**. This makes the cleanup reversible:
+
+```fish
+for dir in "$HOME/fusion-installer" "$HOME/Autodesk-Fusion-360-for-Linux"
+    if test -d "$dir"
+        echo "Moving to Trash: $dir"
+        gio trash "$dir"
+    end
+end
+```
+
+The folders might not exist on a fresh system if you used different names; in that case the loop safely skips them.
+
+**Never include `~/.autodesk_fusion` in this command.** Removing it would remove the installed application and Wine prefix.
+
+### 4.4 Final check and reclaim disk space
+
+Launch Autodesk Fusion again from the dock and test a popup:
+
+```fish
+gio launch "$HOME/.local/share/applications/autodesk-fusion.desktop"
+```
+
+With Fusion open, inspect the watcher log if needed:
+
+```fish
+tail -n 30 "$HOME/.cache/fusion-popup-fix.log"
+```
+
+If everything still works, open **GNOME Files → Trash** and empty it to actually reclaim the storage. Until the Trash is emptied, the folders can be restored if necessary.
+
+> **Optional:** You may also remove a separate checkout of *this guide's repository* (for example, `~/fusion-360-cachyos-guide`) after Step 3 has copied its scripts into `~/.local/bin/`. Keeping the checkout is convenient for future updates and does not affect Fusion runtime.
+
+**Result:** The system keeps **Wine Staging 11.10**, a **single working Fusion prefix**, and **automatic popup correction from the GNOME dock**, without retaining unused installer repositories.
