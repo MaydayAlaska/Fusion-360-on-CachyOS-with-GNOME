@@ -144,4 +144,159 @@ The line should include `wine-staging`. **Revisit this pin periodically**: Wine 
 
 ---
 
-**Next:** Step 2 — Install Autodesk Fusion 360 using the system Wine 11.10 without downloading or building another Wine/Proton.
+## Step 2 — Install Autodesk Fusion 360
+
+This step follows the **Cryinkfly Autodesk Fusion 360 on Linux** installer, using the **system Wine Staging 11.10** prepared in Step 1. The tested result uses **one Wine installation**, **one Fusion Wine prefix**, **XWayland**, and **no Wine virtual desktop**.
+
+**Upstream project:** [cryinkfly/Autodesk-Fusion-360-on-Linux on Codeberg](https://codeberg.org/cryinkfly/Autodesk-Fusion-360-on-Linux). The older [GitHub mirror](https://github.com/cryinkfly/Autodesk-Fusion-360-for-Linux) is archived; prefer the Codeberg source for current scripts.
+
+> **Before starting:** This guide is for a **fresh Fusion installation**. Do **not** delete or overwrite an existing `~/.autodesk_fusion` directory: it may contain Fusion data, configuration, and a usable Wine prefix. Back up an existing installation before considering a reinstall.
+
+### 2.1 Verify Wine and the GNOME session
+
+Open a **Fish** terminal and verify the Wine version:
+
+```fish
+wine --version
+command -s wine
+pacman -Q wine-staging
+echo $XDG_SESSION_TYPE
+```
+
+The tested configuration is:
+
+```text
+wine-11.10 (Staging)
+/usr/bin/wine
+wine-staging 11.10-1
+wayland
+```
+
+The GNOME desktop may run on **Wayland**, but we want Fusion's Wine windows to use **XWayland**. For this reason, we will remove `WAYLAND_DISPLAY` only from the installer's environment; there is **no need to change the whole desktop session to X11**.
+
+The installer is a third-party shell script that downloads and configures Windows components. Review it before executing it, and **run it as your normal user, not with `sudo`**. It can request administrator privileges for missing system dependencies.
+
+### 2.2 Download the Codeberg installer
+
+Create a dedicated directory and download the upstream installer:
+
+```fish
+mkdir -p "$HOME/fusion-installer"
+cd "$HOME/fusion-installer"
+
+curl -fL --retry 3 \
+    "https://codeberg.org/cryinkfly/Autodesk-Fusion-360-on-Linux/raw/branch/main/files/setup/autodesk_fusion_installer_x86-64.sh" \
+    -o install-fusion-codeberg.sh
+```
+
+Confirm the download is a shell script before running it:
+
+```fish
+head -n 5 install-fusion-codeberg.sh
+bash -n install-fusion-codeberg.sh
+```
+
+`bash -n` checks shell syntax only; it is **not** a security audit. The upstream `main` branch can change, so review the downloaded script and its dependencies whenever you repeat this procedure.
+
+### 2.3 Install Fusion with the existing system Wine
+
+Run the same command used for the working CachyOS setup:
+
+```fish
+env -u WAYLAND_DISPLAY bash ./install-fusion-codeberg.sh --install --default
+```
+
+**What the flags and environment mean:**
+
+- `--install`: start the installation.
+- `--default`: use the default directory, `$HOME/.autodesk_fusion`.
+- `env -u WAYLAND_DISPLAY`: make Wine use X11/XWayland rather than its native Wayland path for this process.
+- `bash`: the downloaded installer is a Bash script, even though your interactive terminal uses Fish.
+
+The installer downloads Autodesk Fusion, configures the Wine prefix, installs Windows runtime components with Winetricks, configures the selected graphics backend, and creates application launchers. An internet connection and a valid Autodesk account/license are required.
+
+On the tested **AMD Radeon RX 9070 XT** system, the installer selected **DXVK**. DXVK translates Direct3D calls to Vulkan; it works with the Mesa RADV driver installed in Step 1.
+
+**Important:** The upstream installer can try to install or upgrade Wine **if it decides the installed version is missing or too old**. For the upstream script version inspected while writing this guide, Wine 11.10 passes its version check, so it should use the existing `/usr/bin/wine`. If the installer proposes removing or replacing Wine 11.10, **cancel the transaction** and investigate rather than accepting it.
+
+The installation may take a while. Avoid interrupting its Windows runtime downloads and setup stages just because a window temporarily stops responding.
+
+### 2.4 Verify the installation paths
+
+The expected layout is:
+
+```text
+~/.autodesk_fusion/
+├── bin/
+│   └── autodesk_fusion_launcher.sh
+├── downloads/
+├── logs/
+└── wineprefixes/
+    └── default/
+        └── drive_c/
+```
+
+Check that the launcher and the prefix were created:
+
+```fish
+test -f "$HOME/.autodesk_fusion/bin/autodesk_fusion_launcher.sh"; and echo "Fusion launcher found"
+test -d "$HOME/.autodesk_fusion/wineprefixes/default/drive_c"; and echo "Fusion prefix found"
+
+wine --version
+command -s wine
+```
+
+**Keep the default prefix:** `$HOME/.autodesk_fusion/wineprefixes/default`. Do not create a second `~/.wine` or `~/.fusion360` prefix for Fusion, and do not install a separate portable Wine/Proton build for this guide.
+
+### 2.5 Configure Wine window integration
+
+Open Wine configuration for **Fusion's own prefix**:
+
+```fish
+env -u WAYLAND_DISPLAY \
+    WINEPREFIX="$HOME/.autodesk_fusion/wineprefixes/default" \
+    winecfg
+```
+
+Under **Graphics**, use these settings:
+
+| Wine setting | Value |
+| --- | --- |
+| Allow the window manager to decorate the windows | **Enabled** |
+| Allow the window manager to control the windows | **Enabled** |
+| Emulate a virtual desktop | **Disabled** |
+
+**Do not disable window-manager control to work around unclickable modal dialogs.** Although that can make some dialogs clickable, it also caused the main Fusion window to stay above other applications in our tests. The modal-dialog workaround is documented separately in Step 3.
+
+### 2.6 First launch and Fusion graphics settings
+
+The installer normally offers to start Fusion when it finishes. For a later manual launch, use the original launcher:
+
+```fish
+env -u WAYLAND_DISPLAY \
+    "$HOME/.autodesk_fusion/bin/autodesk_fusion_launcher.sh"
+```
+
+Sign in with your Autodesk account if prompted. Browser-based login and Fusion's initial startup may take some time.
+
+For the tested graphics configuration, we used **DX11/DXVK** for rendering with the **Qt API set to OpenGL** and the Chromium graphics option set to **Desktop GL / Automatic**, where those options are available in your Fusion build. Do not assume the preference labels are identical across Fusion versions; verify rendering in a simple design before changing additional graphics settings.
+
+The installer may also create one or more `.desktop` entries. You can locate them with:
+
+```fish
+find "$HOME/.local/share/applications" \
+    -type f -iname '*fusion*.desktop' \
+    -print -exec grep -E '^(Name|Exec)=' {} \; 2>/dev/null
+```
+
+Avoid adding multiple manual launchers at this stage. We will adjust the **existing** GNOME launcher when integrating the popup fix.
+
+### 2.7 Known issue: dark or unclickable popup dialogs
+
+On the tested CachyOS/GNOME Wayland setup, Fusion's main UI and 3D viewport worked well, but some modal dialogs (such as **Open** or **Export**) were darkened or intercepted mouse clicks. This is **not** a reason to reinstall Fusion, switch Wine versions, enable a virtual desktop, or disable window-manager control.
+
+We resolved the popup behavior by targeting a specific XWayland overlay: **first** make it click-through using **XFixes ShapeInput**, **then** set its `_NET_WM_WINDOW_OPACITY` to `0`. **The order matters.**
+
+---
+
+**Next:** Step 3 — Automate the Fusion popup fix and integrate it with the existing GNOME application launcher.
