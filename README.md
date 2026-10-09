@@ -299,4 +299,125 @@ We resolved the popup behavior by targeting a specific XWayland overlay: **first
 
 ---
 
-**Next:** Step 3 — Automate the Fusion popup fix and integrate it with the existing GNOME application launcher.
+## Step 3 — Automatically fix dark and unclickable popup windows
+
+With **Wine Staging 11.10**, **GNOME Wayland**, and **Fusion running through XWayland**, some Fusion modal dialogs (including Open and Export) may appear unusually dark and ignore mouse clicks. Keyboard navigation can still work.
+
+In the tested environment, the problem came from a translucent X11 overlay window whose properties included:
+
+```text
+WM_NAME = "Fusion360"
+WM_CLASS = "fusion360.exe", "fusion360.exe"
+_NET_WM_WINDOW_TYPE = _NET_WM_WINDOW_TYPE_DIALOG
+_NET_WM_WINDOW_OPACITY = 1280068684
+WM_TRANSIENT_FOR = <Fusion window>
+```
+
+The fix must run in **this exact order**:
+
+1. **XFixes:** Set the overlay's X11 **ShapeInput** region to an empty region, allowing clicks to reach the dialog underneath.
+2. **XProp:** Only afterwards, set the overlay's **_NET_WM_WINDOW_OPACITY** property to **0**, removing the dark layer.
+
+Changing opacity first is **not** the tested sequence. The watcher monitors new overlays and applies these two operations automatically each time a matching window appears.
+
+### 3.1 Get the ready-to-use scripts
+
+The complete solution is included in this repository:
+
+| Repository file | Purpose |
+| --- | --- |
+| [`scripts/fusion-popup-fix.py`](scripts/fusion-popup-fix.py) | Watches for Fusion overlays and applies **XFixes first, opacity second** |
+| [`scripts/fusion-launch-with-fix.py`](scripts/fusion-launch-with-fix.py) | Starts the popup watcher **and** the original Fusion launcher, stopping the watcher when Fusion exits |
+| [`scripts/install-fusion-popup-fix.py`](scripts/install-fusion-popup-fix.py) | Installs both scripts, creates a stable GNOME app shortcut, and repairs GNOME dock favorites |
+
+No manual window picking, separate Wine installation, virtual desktop, background service, or open terminal is required for normal use.
+
+The required runtime dependencies are covered in Step 1. If needed:
+
+```fish
+sudo pacman -S --needed python xdotool xorg-xprop libxfixes git
+```
+
+### 3.2 Install the automatic fix (Fish shell)
+
+**Close Fusion completely** and stop any earlier manually launched popup watcher before installing.
+
+Clone this repository, then run the installer as your **normal user**, not as root:
+
+```fish
+git clone https://github.com/MaydayAlaska/Fusion-360-on-CachyOS-with-GNOME.git \
+    "$HOME/fusion-360-cachyos-guide"
+
+cd "$HOME/fusion-360-cachyos-guide"
+
+python3 scripts/install-fusion-popup-fix.py
+```
+
+If you already cloned the repository, enter that checkout, run `git pull`, then execute the Python installer.
+
+The installer performs the following user-local changes:
+
+- Installs the watcher and launch wrapper in **`~/.local/bin/`**.
+- **Keeps the upstream Fusion launcher unchanged** at `~/.autodesk_fusion/bin/autodesk_fusion_launcher.sh`.
+- Creates a stable application entry at **`~/.local/share/applications/autodesk-fusion.desktop`** pointing to the launch wrapper.
+- Backs up existing Autodesk Fusion desktop entries (suffix `*.fusion-popup-fix.bak`), redirects them to the wrapper, and hides their duplicates from the application menu using `NoDisplay=true`.
+- Updates the **GNOME dock favorite** to `autodesk-fusion.desktop`, replacing older Fusion favorites while preserving other pinned applications.
+
+This avoids the issue we experienced where manually editing a Wine-created `.desktop` file made `gio launch` work, but the dock still launched Fusion via an outdated shortcut.
+
+The installer is designed to be safe to rerun; it preserves existing backup files rather than overwriting them.
+
+### 3.3 Launch Fusion normally
+
+After installation, launch **Autodesk Fusion** from the **GNOME applications menu or the dock**.
+
+The wrapper automatically starts the XWayland popup watcher, launches Fusion with the system Wine 11.10 through the original Cryinkfly launcher, and shuts down the watcher when Fusion exits. Both Fusion and the watcher are launched with `WAYLAND_DISPLAY` removed from their environment, ensuring that they use **XWayland** on a GNOME Wayland desktop.
+
+There is no need to run the fix manually before opening each dialog.
+
+If you want to test the exact installed GNOME shortcut, use:
+
+```fish
+gio launch "$HOME/.local/share/applications/autodesk-fusion.desktop"
+```
+
+### 3.4 Verify that the fix is active
+
+With Fusion open, run:
+
+```fish
+pgrep -af 'fusion-popup-fix[.]py|fusion-launch-with-fix[.]py'
+tail -n 30 "$HOME/.cache/fusion-popup-fix.log"
+gsettings get org.gnome.shell favorite-apps
+```
+
+Once you open a matching popup dialog, the log should contain:
+
+```text
+--- Starting Fusion popup helper ---
+Watching Fusion 360 popups. Stop with Ctrl+C.
+Fixed overlay <window-id>: clicks first, opacity second
+```
+
+The GNOME favorite-apps output should include `autodesk-fusion.desktop`.
+
+If the watcher is running but a dialog is still dark, inspect the log. The current script intentionally targets overlays matching the exact properties observed on our tested setup; **different Fusion/Wine versions may use different X11 properties**, in which case the detection logic needs investigation rather than applying opacity changes indiscriminately.
+
+### 3.5 Backup and recovery
+
+The installer does **not** edit or reinstall the Wine prefix, Fusion program files, Wine package, or Cryinkfly's original launcher.
+
+For each pre-existing desktop shortcut changed, it retains a sibling backup named `<filename>.fusion-popup-fix.bak`. Backups are **not overwritten on later installations**.
+
+To find them:
+
+```fish
+find "$HOME/.local/share/applications" \
+    -type f -name '*.fusion-popup-fix.bak' -print
+```
+
+For a manual rollback, unpin **Autodesk Fusion** from GNOME, remove the managed `~/.local/share/applications/autodesk-fusion.desktop` entry, and restore the original `.desktop` files from their backups. The two helper scripts in `~/.local/bin/` can then be removed. **Do not delete the Fusion Wine prefix.**
+
+---
+
+**Compatibility note:** This popup workaround was verified with **CachyOS + GNOME Wayland + XWayland + Wine Staging 11.10 + AMD Radeon RX 9070 XT**. It is a focused workaround, not a general Wine or Fusion patch.
